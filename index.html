@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cinema Ticket Booking</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-film"></i> Cinema Ticket Booking</h1>
+            <a href="/admin.html" class="admin-link">Admin Panel</a>
+        </header>
+
+        <main>
+            <section class="movies-section">
+                <h2>Now Showing</h2>
+                <div id="movies" class="movies-grid"></div>
+            </section>
+
+            <section class="seats-section" style="display: none;">
+                <h2>Select Your Seats</h2>
+                <div class="screen">Screen</div>
+                <div class="seats-info">
+                    <div class="seat-legend">
+                        <div class="seat available"><span></span></div>
+                        <p>Available</p>
+                        <div class="seat booked"><span></span></div>
+                        <p>Booked</p>
+                        <div class="seat selected"><span></span></div>
+                        <p>Selected</p>
+                    </div>
+                    <div class="ticket-counter">
+                        <label for="ticketCount">Number of Tickets:</label>
+                        <div class="counter-controls">
+                            <button onclick="updateTicketCount(-1)" class="counter-btn">
+                                <i class="fas fa-minus"></i>
+                            </button>
+                            <span id="ticketCount">1</span>
+                            <button onclick="updateTicketCount(1)" class="counter-btn">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div id="seats" class="seats-grid"></div>
+            </section>
+
+            <section class="booking-section" style="display: none;">
+                <h2>Booking Details</h2>
+                <div class="booking-summary">
+                    <div class="selected-movie">
+                        <h3>Selected Movie</h3>
+                        <div id="movieSummary"></div>
+                    </div>
+                    <div class="selected-seats">
+                        <h3>Selected Seats</h3>
+                        <div id="seatsSummary"></div>
+                    </div>
+                </div>
+                <form class="booking-form" onsubmit="bookSeats(event)">
+                    <div class="form-group">
+                        <label for="userName">Full Name</label>
+                        <input 
+                            type="text" 
+                            id="userName" 
+                            required 
+                            pattern="^[a-zA-Z ]{3,50}$"
+                            title="Name should be between 3 and 50 characters and contain only letters and spaces"
+                            oninput="validateForm()"
+                        >
+                        <span class="error-message" id="nameError"></span>
+                    </div>
+                    <div class="form-group">
+                        <label for="userEmail">Email Address</label>
+                        <input 
+                            type="email" 
+                            id="userEmail" 
+                            required
+                            pattern="[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$"
+                            title="Please enter a valid email address"
+                            oninput="validateForm()"
+                        >
+                        <span class="error-message" id="emailError"></span>
+                    </div>
+                    <div class="form-group">
+                        <label for="userPhone">Phone Number</label>
+                        <input 
+                            type="tel" 
+                            id="userPhone" 
+                            required
+                            pattern="[0-9]{10}"
+                            title="Please enter a valid 10-digit phone number"
+                            oninput="validateForm()"
+                        >
+                        <span class="error-message" id="phoneError"></span>
+                    </div>
+                    <button type="submit" id="bookButton" disabled>
+                        <i class="fas fa-ticket-alt"></i> Book Seats
+                        <span class="total-price" id="totalPrice"></span>
+                    </button>
+                </form>
+                <div id="bookingStatus" class="status-message"></div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div id="confirmationModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <h2>Booking Confirmation</h2>
+            <div class="confirmation-details">
+                <div class="movie-preview">
+                    <img id="confirmationPoster" src="" alt="Movie Poster">
+                    <div class="movie-details">
+                        <h3 id="confirmationTitle"></h3>
+                        <p id="confirmationShowtime"></p>
+                        <p id="confirmationDuration"></p>
+                    </div>
+                </div>
+                <div class="booking-details">
+                    <p><strong>Name:</strong> <span id="confirmationName"></span></p>
+                    <p><strong>Email:</strong> <span id="confirmationEmail"></span></p>
+                    <p><strong>Phone:</strong> <span id="confirmationPhone"></span></p>
+                    <p><strong>Seats:</strong> <span id="confirmationSeats"></span></p>
+                    <p><strong>Total Price:</strong> <span id="confirmationPrice"></span></p>
+                </div>
+                <div class="qr-code">
+                    <!-- QR code will be generated here -->
+                </div>
+            </div>
+            <div class="confirmation-actions">
+                <button onclick="printConfirmation()" class="print-btn">
+                    <i class="fas fa-print"></i> Print Ticket
+                </button>
+                <button onclick="downloadTicket()" class="download-btn">
+                    <i class="fas fa-download"></i> Download Ticket
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+    <script>
+        let selectedMovieId = null;
+        let selectedMovie = null;
+        let selectedSeats = new Set();
+        let ws = null;
+        const TICKET_PRICE = 10; // Price in dollars
+
+        function validateForm() {
+            const nameInput = document.getElementById('userName');
+            const emailInput = document.getElementById('userEmail');
+            const phoneInput = document.getElementById('userPhone');
+            const bookButton = document.getElementById('bookButton');
+            
+            // Name validation
+            const nameError = document.getElementById('nameError');
+            const namePattern = /^[a-zA-Z ]{3,50}$/;
+            if (!namePattern.test(nameInput.value)) {
+                nameError.textContent = 'Name should be between 3 and 50 characters and contain only letters';
+                nameInput.classList.add('invalid');
+            } else {
+                nameError.textContent = '';
+                nameInput.classList.remove('invalid');
+            }
+
+            // Email validation
+            const emailError = document.getElementById('emailError');
+            const emailPattern = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+            if (!emailPattern.test(emailInput.value)) {
+                emailError.textContent = 'Please enter a valid email address';
+                emailInput.classList.add('invalid');
+            } else {
+                emailError.textContent = '';
+                emailInput.classList.remove('invalid');
+            }
+
+            // Phone validation
+            const phoneError = document.getElementById('phoneError');
+            const phonePattern = /^[0-9]{10}$/;
+            if (!phonePattern.test(phoneInput.value)) {
+                phoneError.textContent = 'Please enter a valid 10-digit phone number';
+                phoneInput.classList.add('invalid');
+            } else {
+                phoneError.textContent = '';
+                phoneInput.classList.remove('invalid');
+            }
+
+            // Enable/disable book button
+            const isValid = namePattern.test(nameInput.value) && 
+                          emailPattern.test(emailInput.value) && 
+                          phonePattern.test(phoneInput.value) &&
+                          selectedSeats.size > 0;
+            
+            bookButton.disabled = !isValid;
+            
+            // Update total price
+            const totalPrice = document.getElementById('totalPrice');
+            if (selectedSeats.size > 0) {
+                totalPrice.textContent = `Total: $${selectedSeats.size * TICKET_PRICE}`;
+            }
+        }
+
+        function updateMovieSummary() {
+            if (selectedMovie) {
+                const summary = document.getElementById('movieSummary');
+                summary.innerHTML = `
+                    <div class="summary-item">
+                        <img src="/static/posters/${selectedMovie.poster}" alt="${selectedMovie.title}">
+                        <div class="summary-details">
+                            <h4>${selectedMovie.title}</h4>
+                            <p><i class="fas fa-clock"></i> ${selectedMovie.duration} mins</p>
+                            <p><i class="fas fa-calendar"></i> ${selectedMovie.showtime}</p>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        function updateSeatsSummary() {
+            const summary = document.getElementById('seatsSummary');
+            if (selectedSeats.size > 0) {
+                const seatElements = Array.from(document.querySelectorAll('.seat.selected'))
+                    .map(seat => seat.querySelector('span').textContent);
+                summary.innerHTML = `
+                    <div class="summary-item">
+                        <p><i class="fas fa-chair"></i> ${seatElements.join(', ')}</p>
+                        <p class="price">$${selectedSeats.size * TICKET_PRICE}</p>
+                    </div>
+                `;
+            } else {
+                summary.innerHTML = '<p>No seats selected</p>';
+            }
+            validateForm();
+        }
+
+        // Initialize WebSocket connection
+        function initWebSocket() {
+            ws = new WebSocket('ws://' + window.location.host + '/ws');
+            
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                if (data.type === 'seat_update' && selectedMovieId) {
+                    fetchSeats(selectedMovieId);
+                }
+            };
+
+            ws.onclose = function() {
+                setTimeout(initWebSocket, 5000);
+            };
+        }
+
+        function updateTicketCount(change) {
+            const countElement = document.getElementById('ticketCount');
+            let count = parseInt(countElement.textContent);
+            count = Math.max(1, Math.min(10, count + change)); // Limit between 1 and 10 tickets
+            countElement.textContent = count;
+            
+            // Clear selected seats if reducing ticket count
+            if (selectedSeats.size > count) {
+                selectedSeats.clear();
+                document.querySelectorAll('.seat.selected').forEach(seat => {
+                    seat.classList.remove('selected');
+                });
+                updateBookButton();
+            }
+        }
+
+        async function fetchMovies() {
+            try {
+                const response = await fetch("/api/movies");
+                if (!response.ok) throw new Error('Failed to fetch movies');
+                
+                const movies = await response.json();
+                const movieContainer = document.getElementById("movies");
+                movieContainer.innerHTML = "";
+                
+                movies.forEach(movie => {
+                    const movieCard = document.createElement("div");
+                    movieCard.className = "movie-card";
+                    movieCard.innerHTML = `
+                        <img src="/static/posters/${movie.poster}" alt="${movie.title}" onerror="this.src='/static/default-poster.jpg'">
+                        <div class="movie-info">
+                            <h3>${movie.title}</h3>
+                            <p><i class="fas fa-clock"></i> Duration: ${movie.duration} mins</p>
+                            <p><i class="fas fa-calendar"></i> Showtime: ${movie.showtime}</p>
+                            <button onclick='selectMovie(${JSON.stringify(movie)})'>
+                                <i class="fas fa-ticket-alt"></i> Book Now
+                            </button>
+                        </div>
+                    `;
+                    movieContainer.appendChild(movieCard);
+                });
+            } catch (error) {
+                console.error('Error fetching movies:', error);
+                showError("Failed to load movies. Please try again later.");
+            }
+        }
+
+        function selectMovie(movie) {
+            try {
+                selectedMovieId = movie.id;
+                selectedMovie = movie;
+                selectedSeats.clear();
+                
+                document.querySelector('.seats-section').style.display = 'block';
+                document.querySelector('.booking-section').style.display = 'block';
+                
+                document.getElementById('ticketCount').textContent = '1';
+                document.getElementById('userName').value = '';
+                document.getElementById('userEmail').value = '';
+                document.getElementById('userPhone').value = '';
+                document.getElementById('bookButton').disabled = true;
+                document.getElementById('bookingStatus').innerHTML = '';
+                
+                updateMovieSummary();
+                updateSeatsSummary();
+                fetchSeats(movie.id);
+                
+                document.querySelector('.seats-section').scrollIntoView({ behavior: 'smooth' });
+            } catch (error) {
+                console.error('Error in selectMovie:', error);
+                showError('Failed to load movie details. Please try again.');
+            }
+        }
+
+        async function fetchSeats(movieId) {
+            try {
+                const response = await fetch(`/api/seats/${movieId}`);
+                if (!response.ok) throw new Error('Failed to fetch seats');
+                
+                const seats = await response.json();
+                const seatContainer = document.getElementById("seats");
+                seatContainer.innerHTML = "";
+                
+                // Create row labels A-E
+                const rows = ['A', 'B', 'C', 'D', 'E'];
+                const seatGrid = document.createElement('div');
+                seatGrid.className = 'seats-grid';
+                
+                // Add row labels and seats
+                rows.forEach(row => {
+                    // Add row label
+                    const rowLabel = document.createElement('div');
+                    rowLabel.className = 'row-label';
+                    rowLabel.textContent = row;
+                    seatGrid.appendChild(rowLabel);
+                    
+                    // Add seats for this row
+                    for (let seatNum = 1; seatNum <= 10; seatNum++) {
+                        const seatNumber = `${row}${seatNum}`;
+                        const seat = seats.find(s => s.seat_number === seatNumber);
+                        
+                        if (seat) {
+                            const seatElement = document.createElement("div");
+                            seatElement.className = `seat ${seat.is_booked ? 'booked' : 'available'}`;
+                            if (selectedSeats.has(seat.id)) {
+                                seatElement.classList.add('selected');
+                            }
+                            seatElement.setAttribute('data-seat-id', seat.id);
+                            seatElement.innerHTML = `<span>${seatNumber}</span>`;
+                            
+                            if (!seat.is_booked) {
+                                seatElement.onclick = () => toggleSeat(seat.id, seatElement);
+                            }
+                            seatGrid.appendChild(seatElement);
+                        }
+                    }
+                });
+                
+                seatContainer.appendChild(seatGrid);
+            } catch (error) {
+                console.error('Error fetching seats:', error);
+                showError("Failed to load seats. Please try again later.");
+            }
+        }
+
+        function toggleSeat(id, element) {
+            const ticketCount = parseInt(document.getElementById('ticketCount').textContent);
+            
+            if (selectedSeats.has(id)) {
+                selectedSeats.delete(id);
+                element.classList.remove('selected');
+            } else if (selectedSeats.size < ticketCount) {
+                selectedSeats.add(id);
+                element.classList.add('selected');
+            } else {
+                showError(`You can only select ${ticketCount} seat(s)`);
+                return;
+            }
+            
+            updateSeatsSummary();
+        }
+
+        function updateBookButton() {
+            const ticketCount = parseInt(document.getElementById('ticketCount').textContent);
+            document.getElementById("bookButton").disabled = selectedSeats.size !== ticketCount;
+        }
+
+        async function bookSeats(event) {
+            event.preventDefault();
+            
+            const userName = document.getElementById('userName').value.trim();
+            const userEmail = document.getElementById('userEmail').value.trim();
+            const userPhone = document.getElementById('userPhone').value.trim();
+            
+            try {
+                const response = await fetch('/api/book', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_name: userName,
+                        user_email: userEmail,
+                        user_phone: userPhone,
+                        movie_id: selectedMovieId,
+                        seat_ids: Array.from(selectedSeats)
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.text();
+                    throw new Error(error || 'Failed to book seats');
+                }
+                
+                const bookings = await response.json();
+                showSuccess('Booking successful!');
+                showConfirmation(userName, userEmail, userPhone);
+                
+                selectedSeats.clear();
+                document.getElementById('ticketCount').textContent = '1';
+                fetchSeats(selectedMovieId);
+            } catch (error) {
+                console.error('Error booking seats:', error);
+                showError(error.message || 'Failed to book seats. Please try again.');
+            }
+        }
+
+        function showConfirmation(name, email, phone) {
+            const modal = document.getElementById('confirmationModal');
+            const poster = document.getElementById('confirmationPoster');
+            const title = document.getElementById('confirmationTitle');
+            const showtime = document.getElementById('confirmationShowtime');
+            const duration = document.getElementById('confirmationDuration');
+            const confirmName = document.getElementById('confirmationName');
+            const confirmEmail = document.getElementById('confirmationEmail');
+            const confirmPhone = document.getElementById('confirmationPhone');
+            const confirmSeats = document.getElementById('confirmationSeats');
+            const confirmPrice = document.getElementById('confirmationPrice');
+
+            poster.src = `/static/posters/${selectedMovie.poster}`;
+            poster.onerror = () => poster.src = '/static/default-poster.jpg';
+            title.textContent = selectedMovie.title;
+            showtime.textContent = `Showtime: ${selectedMovie.showtime}`;
+            duration.textContent = `Duration: ${selectedMovie.duration} mins`;
+            confirmName.textContent = name;
+            confirmEmail.textContent = email;
+            confirmPhone.textContent = phone;
+            
+            const seatElements = Array.from(document.querySelectorAll('.seat.selected'))
+                .map(seat => seat.querySelector('span').textContent);
+            confirmSeats.textContent = seatElements.join(', ');
+            confirmPrice.textContent = `$${selectedSeats.size * TICKET_PRICE}`;
+
+            // Generate QR code
+            const qrContainer = document.querySelector('.qr-code');
+            qrContainer.innerHTML = '';
+            const qr = qrcode(0, 'M');
+            const qrData = JSON.stringify({
+                booking_id: Date.now(),
+                movie: selectedMovie.title,
+                seats: seatElements,
+                name: name,
+                email: email,
+                phone: phone
+            });
+            qr.addData(qrData);
+            qr.make();
+            qrContainer.innerHTML = qr.createImgTag(5);
+
+            modal.style.display = 'flex';
+
+            document.querySelector('.close-modal').onclick = () => {
+                modal.style.display = 'none';
+                resetBooking();
+            };
+
+            window.onclick = (event) => {
+                if (event.target === modal) {
+                    modal.style.display = 'none';
+                    resetBooking();
+                }
+            };
+        }
+
+        function resetBooking() {
+            selectedSeats.clear();
+            document.getElementById('userName').value = '';
+            document.getElementById('userEmail').value = '';
+            document.getElementById('userPhone').value = '';
+            document.getElementById('ticketCount').textContent = '1';
+            document.querySelector('.seats-section').style.display = 'none';
+            document.querySelector('.booking-section').style.display = 'none';
+            document.getElementById("bookButton").disabled = true;
+        }
+
+        function printConfirmation() {
+            window.print();
+        }
+
+        function downloadTicket() {
+            // Create a PDF or image of the ticket
+            // For now, we'll just trigger the print dialog
+            printConfirmation();
+        }
+
+        function showError(message) {
+            const status = document.getElementById("bookingStatus");
+            status.className = "status-message error";
+            status.innerHTML = `<i class="fas fa-exclamation-circle"></i> ${message}`;
+        }
+
+        function showSuccess(message) {
+            const status = document.getElementById("bookingStatus");
+            status.className = "status-message success";
+            status.innerHTML = `<i class="fas fa-check-circle"></i> ${message}`;
+        }
+
+        // Initialize
+        initWebSocket();
+        fetchMovies();
+    </script>
+</body>
+</html>
